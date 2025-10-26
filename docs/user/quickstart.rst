@@ -389,8 +389,8 @@ can raise it with
 
     >>> bad_r.raise_for_status()
     Traceback (most recent call last):
-      File "requests/models.py", line 832, in raise_for_status
-        raise http_error
+      File "requests/models/response.py", line 403, in raise_for_status
+        raise HTTPError(http_error_msg, response=self)
     requests.exceptions.HTTPError: 404 Client Error
 
 But, since our ``status_code`` for ``r`` was ``200``, when we call
