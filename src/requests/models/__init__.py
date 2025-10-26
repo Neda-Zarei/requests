@@ -26,11 +26,11 @@ ITER_CHUNK_SIZE = 512
 # Import for backward compatibility
 from ..compat import urlencode
 
-# Placeholder imports for classes that will be added in subsequent tasks:
-# from .request import (
-#     Request,
-#     PreparedRequest,
-#     RequestEncodingMixin,
-#     RequestHooksMixin,
-# )
-# from .response import Response
+# Import classes from submodules for re-export
+from .request import (
+    Request,
+    PreparedRequest,
+    RequestEncodingMixin,
+    RequestHooksMixin,
+)
+from .response import Response
