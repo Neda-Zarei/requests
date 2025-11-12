@@ -1,3 +1,8 @@
+# NOTE: This file is intentionally excluded from Black auto-formatting.
+# It contains low-level tests that embed exact byte-level HTTP messages where
+# literal formatting (CRLFs, Content-Length calculations, and header/body
+# boundaries) must be preserved for clarity and to avoid accidental changes.
+# See .github/CONTRIBUTING.md for details before editing.
 import threading
 
 import pytest
