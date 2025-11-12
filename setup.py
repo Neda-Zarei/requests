@@ -65,8 +65,9 @@ setup(
     author=about["__author__"],
     author_email=about["__author_email__"],
     url=about["__url__"],
-    packages=["requests", "requests._internal"],
-    package_data={"": ["LICENSE", "NOTICE"]},
+    packages=["requests"],
+    # PEP 561: include the typing marker in wheels. Keep existing data files.
+    package_data={"": ["LICENSE", "NOTICE"], "requests": ["py.typed"]},
     package_dir={"": "src"},
     include_package_data=True,
     python_requires=">=3.9",
