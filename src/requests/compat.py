@@ -2,25 +2,30 @@
 requests.compat
 ~~~~~~~~~~~~~~~
 
-This module previously handled import compatibility issues
-between Python 2 and Python 3. It remains for backwards
-compatibility until the next major version.
+This module provides a compatibility layer for external packages and
+standard library imports. It also maintains deprecated Python 2 era
+aliases for backward compatibility until the next major version.
+
+As of Requests 3.0, this module will be significantly reduced.
 """
 
 import importlib
 import sys
 import warnings
 
-# -------
-# urllib3
-# -------
+# ----------------------
+# urllib3 Version Check
+# ----------------------
+# Runtime dependency: Detect urllib3 major version for compatibility handling.
+# urllib3 2.x changed string encoding behavior (utf-8 vs latin-1), requiring
+# different code paths. See utils.py::super_len for usage.
+# Tested in: tests covering file uploads and body encoding
 from urllib3 import __version__ as urllib3_version
 
-# Detect which major version of urllib3 is being used.
 try:
     is_urllib3_1 = int(urllib3_version.split(".")[0]) == 1
 except (TypeError, AttributeError):
-    # If we can't discern a version, prefer old functionality.
+    # If version parsing fails, assume urllib3 1.x behavior for safety
     is_urllib3_1 = True
 
 # -------------------
@@ -42,17 +47,11 @@ def _resolve_char_detection():
 
 chardet = _resolve_char_detection()
 
-# -------
-# Pythons
-# -------
-
-# Syntax sugar.
-_ver = sys.version_info
-
-#: Python 3.x?
-is_py3 = _ver[0] == 3
-
-# json/simplejson module import resolution
+# -------------------
+# JSON Module Support
+# -------------------
+# Requests preferentially uses simplejson if available for performance,
+# but falls back to the standard library json module.
 has_simplejson = False
 try:
     import simplejson as json
@@ -66,16 +65,16 @@ if has_simplejson:
 else:
     from json import JSONDecodeError
 
-# Keep OrderedDict for backwards compatibility.
+# -----------------------
+# Standard Library Imports
+# -----------------------
+# These are re-exported for backward compatibility and to provide a single
+# import location for common dependencies.
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, MutableMapping
 from http import cookiejar as cookielib
 from http.cookies import Morsel
 from io import StringIO
-
-# --------------
-# Legacy Imports
-# --------------
 from urllib.parse import (
     quote,
     quote_plus,
@@ -96,17 +95,24 @@ from urllib.request import (
     proxy_bypass_environment,
 )
 
-# Keep Python 3 builtins exposed for historical reasons
+# -----------------------------
+# Python 3 Built-ins Re-exports
+# -----------------------------
+# Exposed for backward compatibility with code that imports from compat
 str = str
 bytes = bytes
-numeric_types = (int, float)
 
-# Deprecation layer for legacy aliases
+# -----------------------------------
+# Deprecation Layer for Python 2 Era
+# -----------------------------------
+# These symbols are deprecated and will be removed in Requests 3.0
 _DEPRECATED_COMPAT = {
     "is_py2": False,
+    "is_py3": True,
     "basestring": str,
     "integer_types": (int,),
     "builtin_str": str,
+    "numeric_types": (int, float),
 }
 
 

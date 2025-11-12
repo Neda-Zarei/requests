@@ -33,11 +33,9 @@ from ._internal_utils import (  # noqa: F401
 )
 from .compat import (
     Mapping,
-    basestring,
     bytes,
     getproxies,
     getproxies_environment,
-    integer_types,
     is_urllib3_1,
 )
 from .compat import parse_http_list as _parse_list_header
@@ -78,7 +76,11 @@ DEFAULT_ACCEPT_ENCODING = ", ".join(
 
 
 if sys.platform == "win32":
-    # provide a proxy_bypass version on Windows without DNS lookups
+    # Platform-specific: Windows registry-based proxy bypass
+    # This is required because the stdlib proxy_bypass on Windows performs
+    # DNS lookups which can be slow or fail. This implementation reads
+    # proxy settings directly from the Windows registry.
+    # Tested in: tests/test_utils.py::test_should_bypass_proxies_win_registry_*
 
     def proxy_bypass_registry(host):
         try:
@@ -131,7 +133,16 @@ if sys.platform == "win32":
 
 
 def dict_to_sequence(d):
-    """Returns an internal sequence dictionary update."""
+    """Returns an internal sequence dictionary update.
+
+    .. deprecated:: 2.33.0
+        This function is unused internally and will be removed in version 3.0.
+    """
+    warnings.warn(
+        "dict_to_sequence is deprecated and will be removed in version 3.0",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     if hasattr(d, "items"):
         d = d.items()
@@ -143,9 +154,11 @@ def super_len(o):
     total_length = None
     current_position = 0
 
+    # Runtime dependency: urllib3 version-specific string encoding
+    # urllib3 2.x changed from latin-1 to utf-8 for string bodies, so we must
+    # pre-encode strings to match the expected encoding when calculating length.
+    # Tested in: tests covering Content-Length calculation with string bodies
     if not is_urllib3_1 and isinstance(o, str):
-        # urllib3 2.x+ treats all strings as utf-8 instead
-        # of latin-1 (iso-8859-1) like http.client.
         o = o.encode("utf-8")
 
     if hasattr(o, "__len__"):
@@ -257,8 +270,14 @@ def get_netrc_auth(url, raise_errors=False):
 def guess_filename(obj):
     """Tries to guess the filename of the given object."""
     name = getattr(obj, "name", None)
-    if name and isinstance(name, basestring) and name[0] != "<" and name[-1] != ">":
-        return os.path.basename(name)
+    if name and isinstance(name, (str, bytes)):
+        # Check if name looks like a file path (not placeholders like <stdin>)
+        if isinstance(name, bytes):
+            if name[0:1] != b"<" and name[-1:] != b">":
+                return os.path.basename(name)
+        else:
+            if name[0:1] != "<" and name[-1:] != ">":
+                return os.path.basename(name)
 
 
 def extract_zipped_paths(path):
@@ -328,7 +347,16 @@ def from_key_val_list(value):
         OrderedDict([('key', 'val')])
 
     :rtype: OrderedDict
+
+    .. deprecated:: 2.33.0
+        This function is unused internally and will be removed in version 3.0.
     """
+    warnings.warn(
+        "from_key_val_list is deprecated and will be removed in version 3.0",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if value is None:
         return None
 
@@ -390,7 +418,16 @@ def parse_list_header(value):
     :param value: a string with a list header.
     :return: :class:`list`
     :rtype: list
+
+    .. deprecated:: 2.33.0
+        This function is unused internally and will be removed in version 3.0.
     """
+    warnings.warn(
+        "parse_list_header is deprecated and will be removed in version 3.0",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     result = []
     for item in _parse_list_header(value):
         if item[:1] == item[-1:] == '"':
@@ -1074,7 +1111,7 @@ def rewind_body(prepared_request):
     """
     body_seek = getattr(prepared_request.body, "seek", None)
     if body_seek is not None and isinstance(
-        prepared_request._body_position, integer_types
+        prepared_request._body_position, int
     ):
         try:
             body_seek(prepared_request._body_position)

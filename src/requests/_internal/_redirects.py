@@ -235,4 +235,3 @@ def resolve_redirects(
 
             url = get_redirect_target(resp)
             yield resp
-

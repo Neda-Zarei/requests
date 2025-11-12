@@ -1,11 +1,16 @@
-.PHONY: docs
+.PHONY: docs lint test ci
+
 init:
 	python -m pip install -r requirements-dev.txt
+
+lint:
+	pre-commit run --all-files
+
 test:
-	python -m pytest tests
+	tox
 
 ci:
-	python -m pytest tests --junitxml=report.xml
+	tox -- --junitxml=report.xml
 
 test-readme:
 	python setup.py check --restructuredtext --strict && ([ $$? -eq 0 ] && echo "README.rst and HISTORY.rst ok") || echo "Invalid markup in README.rst or HISTORY.rst!"

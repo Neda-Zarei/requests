@@ -19,7 +19,6 @@ except Exception:  # pragma: no cover - urllib3 is a hard dependency in tests
     _urllib3_choose_boundary = None  # type: ignore
     _urllib3_encode_multipart_formdata = None  # type: ignore
 
-from ..compat import basestring
 from ..utils import guess_filename, to_key_val_list
 
 
@@ -48,7 +47,7 @@ def encode_multipart_formdata(
     """
     if not files:
         raise ValueError("Files must be provided.")
-    elif isinstance(data, basestring):
+    elif isinstance(data, str):
         raise ValueError("Data must not be a string.")
 
     new_fields: List[Any] = []
@@ -57,7 +56,7 @@ def encode_multipart_formdata(
 
     # Normalize simple form fields
     for field, val in fields:
-        if isinstance(val, basestring) or not hasattr(val, "__iter__"):
+        if isinstance(val, str) or not hasattr(val, "__iter__"):
             val = [val]
         for v in val:
             if v is not None:

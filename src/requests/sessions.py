@@ -56,7 +56,11 @@ from .utils import (  # noqa: F401
     to_key_val_list,
 )
 
-# Preferred clock, based on which one is more accurate on a given system.
+# Platform-specific: Clock selection for accurate request timing
+# On Windows, perf_counter provides more accurate timing than time.time
+# which has limited resolution. On other platforms, time.time is sufficient.
+# This affects Session.send() elapsed time measurement.
+# Tested implicitly in all timing-sensitive tests (e.g., timeout tests)
 if sys.platform == "win32":
     preferred_clock = time.perf_counter
 else:

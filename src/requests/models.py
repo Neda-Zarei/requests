@@ -30,8 +30,6 @@ from .compat import (
     Callable,
     JSONDecodeError,
     Mapping,
-    basestring,
-    builtin_str,
     chardet,
     cookielib,
 )
@@ -118,7 +116,7 @@ class RequestEncodingMixin:
         elif hasattr(data, "__iter__"):
             result = []
             for k, vs in to_key_val_list(data):
-                if isinstance(vs, basestring) or not hasattr(vs, "__iter__"):
+                if isinstance(vs, str) or not hasattr(vs, "__iter__"):
                     vs = [vs]
                 for v in vs:
                     if v is not None:
@@ -460,7 +458,7 @@ class PreparedRequest(RequestEncodingMixin, RequestHooksMixin):
         is_stream = all(
             [
                 hasattr(data, "__iter__"),
-                not isinstance(data, (basestring, list, tuple, Mapping)),
+                not isinstance(data, (str, list, tuple, Mapping)),
             ]
         )
 
@@ -489,7 +487,7 @@ class PreparedRequest(RequestEncodingMixin, RequestHooksMixin):
                 )
 
             if length:
-                self.headers["Content-Length"] = builtin_str(length)
+                self.headers["Content-Length"] = str(length)
             else:
                 self.headers["Transfer-Encoding"] = "chunked"
         else:
@@ -499,7 +497,7 @@ class PreparedRequest(RequestEncodingMixin, RequestHooksMixin):
             else:
                 if data:
                     body = self._encode_params(data)
-                    if isinstance(data, basestring) or hasattr(data, "read"):
+                    if isinstance(data, str) or hasattr(data, "read"):
                         content_type = None
                     else:
                         content_type = "application/x-www-form-urlencoded"
@@ -519,7 +517,7 @@ class PreparedRequest(RequestEncodingMixin, RequestHooksMixin):
             if length:
                 # If length exists, set it. Otherwise, we fallback
                 # to Transfer-Encoding: chunked.
-                self.headers["Content-Length"] = builtin_str(length)
+                self.headers["Content-Length"] = str(length)
         elif (
             self.method not in ("GET", "HEAD")
             and self.headers.get("Content-Length") is None

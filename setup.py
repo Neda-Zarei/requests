@@ -3,7 +3,7 @@ import os
 import sys
 from codecs import open
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 CURRENT_PYTHON = sys.version_info[:2]
 REQUIRED_PYTHON = (3, 9)
@@ -65,7 +65,7 @@ setup(
     author=about["__author__"],
     author_email=about["__author_email__"],
     url=about["__url__"],
-    packages=["requests"],
+    packages=find_packages(where="src"),
     # PEP 561: include the typing marker in wheels. Keep existing data files.
     package_data={"": ["LICENSE", "NOTICE"], "requests": ["py.typed"]},
     package_dir={"": "src"},

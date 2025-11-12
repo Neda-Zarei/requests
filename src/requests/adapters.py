@@ -30,7 +30,7 @@ from urllib3.util.retry import Retry
 
 # TODO(3.0): requests.adapters will become a thin wrapper over requests._internal._adapters
 from .auth import _basic_auth_str
-from .compat import basestring, urlparse
+from .compat import urlparse
 from .cookies import extract_cookies_to_jar
 from .exceptions import (
     ConnectionError,
@@ -284,7 +284,7 @@ class HTTPAdapter(BaseAdapter):
             conn.ca_cert_dir = None
 
         if cert:
-            if not isinstance(cert, basestring):
+            if not isinstance(cert, str):
                 conn.cert_file = cert[0]
                 conn.key_file = cert[1]
             else:

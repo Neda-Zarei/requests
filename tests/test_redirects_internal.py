@@ -24,4 +24,3 @@ def test_HTTP_303_rewrite_to_get(httpbin):
     assert r.request.method == "GET"
     assert r.history[0].status_code == 303
     assert r.history[0].is_redirect
-

@@ -14,7 +14,7 @@ import typing as _t
 from urllib3.poolmanager import PoolManager, proxy_from_url
 
 from ..auth import _basic_auth_str
-from ..compat import basestring, urlparse
+from ..compat import urlparse
 from ..exceptions import InvalidSchema
 from ..utils import DEFAULT_CA_BUNDLE_PATH, extract_zipped_paths, get_auth_from_url
 
@@ -161,7 +161,7 @@ def configure_cert_verify(conn, url: str, verify, cert) -> None:
         conn.ca_cert_dir = None
 
     if cert:
-        if not isinstance(cert, basestring):
+        if not isinstance(cert, str):
             conn.cert_file = cert[0]
             conn.key_file = cert[1]
         else:
