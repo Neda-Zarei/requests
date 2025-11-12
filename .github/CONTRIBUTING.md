@@ -14,6 +14,23 @@ instead be directed to [Stack Overflow](https://stackoverflow.com/). Make sure
 that your question is tagged with the `python-requests` tag when asking it on
 Stack Overflow, to ensure that it is answered promptly and accurately.
 
+## Code style, formatting, and exclusions
+
+We use `pre-commit` to run our linters and formatters. `Black` is the canonical
+Python code formatter used in this repository and is pinned in `.pre-commit-config.yaml`.
+
+Permanent exclusions: tests/test_lowlevel.py
+
+- This file contains low-level socket/HTTP tests that embed exact byte sequences
+  and raw HTTP messages (e.g., CRLFs, Content-Length calculations, header/body
+  boundaries). Automated reformatting could reflow multi-line byte literals or
+  adjust quoting/parentheses, which may obscure the test intent and makes
+  byte-for-byte review harder. For that reason, we exclude this file from Black
+  formatting.
+- Please do not run Black manually on this file. When making changes, keep
+  existing literal formatting intact and review diffs carefully for unintended
+  byte changes. See the comment at the top of the file for a reminder.
+
 ## Good Bug Reports
 
 Please be aware of the following things when filing bug reports:

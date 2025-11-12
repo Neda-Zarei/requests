@@ -21,6 +21,12 @@ repos:
   rev: 23.7.0
   hooks:
     - id: black
+      # Rationale: tests/test_lowlevel.py contains low-level socket/HTTP tests that
+      # embed exact byte sequences (CRLFs, Content-Length calculations, and raw
+      # header/body boundaries). Automated reformatting can reflow multi-line
+      # byte literals or adjust quoting/parentheses, which risks obscuring the intent
+      # and makes byte-for-byte review harder. Until we validate safe formatting with
+      # the pinned Black version, keep this file excluded.
       exclude: tests/test_lowlevel.py
 - repo: https://github.com/PyCQA/flake8
   rev: 6.1.0
