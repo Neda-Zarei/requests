@@ -29,7 +29,7 @@ from urllib3.util import parse_url
 from urllib3.util.retry import Retry
 
 from .auth import _basic_auth_str
-from .compat import basestring, urlparse
+from .compat import urlparse
 from .cookies import extract_cookies_to_jar
 from .exceptions import (
     ConnectionError,
@@ -49,11 +49,11 @@ from .utils import (
     DEFAULT_CA_BUNDLE_PATH,
     extract_zipped_paths,
     get_auth_from_url,
+    get_encoding_from_headers,
     prepend_scheme_if_needed,
     select_proxy,
     urldefragauth,
 )
-from ._internal._headers import get_encoding_from_headers
 
 try:
     from urllib3.contrib.socks import SOCKSProxyManager
@@ -317,7 +317,7 @@ class HTTPAdapter(BaseAdapter):
             conn.ca_cert_dir = None
 
         if cert:
-            if not isinstance(cert, basestring):
+            if not isinstance(cert, (str, bytes)):
                 conn.cert_file = cert[0]
                 conn.key_file = cert[1]
             else:

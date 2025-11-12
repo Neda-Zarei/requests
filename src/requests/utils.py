@@ -33,11 +33,9 @@ from ._internal_utils import (  # noqa: F401
 )
 from .compat import (
     Mapping,
-    basestring,
     bytes,
     getproxies,
     getproxies_environment,
-    integer_types,
     is_urllib3_1,
 )
 from .compat import parse_http_list as _parse_list_header
@@ -58,11 +56,6 @@ from .exceptions import (
     UnrewindableBodyError,
 )
 from .structures import CaseInsensitiveDict
-from ._internal._headers import (
-    check_header_validity as check_header_validity,
-    _parse_content_type_header as _parse_content_type_header,
-    get_encoding_from_headers as get_encoding_from_headers,
-)
 
 NETRC_FILES = (".netrc", "_netrc")
 
@@ -256,7 +249,7 @@ def get_netrc_auth(url, raise_errors=False):
 def guess_filename(obj):
     """Tries to guess the filename of the given object."""
     name = getattr(obj, "name", None)
-    if name and isinstance(name, basestring) and name[0] != "<" and name[-1] != ">":
+    if name and isinstance(name, (str, bytes)) and name[0] != "<" and name[-1] != ">":
         return os.path.basename(name)
 
 
@@ -505,9 +498,55 @@ def get_encodings_from_content(content):
         + xml_re.findall(content)
     )
 
-# moved to requests._internal._headers._parse_content_type_header
 
-# moved to requests._internal._headers.get_encoding_from_headers
+def _parse_content_type_header(header):
+    """Returns content type and parameters from given header
+
+    :param header: string
+    :return: tuple containing content type and dictionary of
+         parameters
+    """
+
+    tokens = header.split(";")
+    content_type, params = tokens[0].strip(), tokens[1:]
+    params_dict = {}
+    items_to_strip = "\"' "
+
+    for param in params:
+        param = param.strip()
+        if param:
+            key, value = param, True
+            index_of_equals = param.find("=")
+            if index_of_equals != -1:
+                key = param[:index_of_equals].strip(items_to_strip)
+                value = param[index_of_equals + 1 :].strip(items_to_strip)
+            params_dict[key.lower()] = value
+    return content_type, params_dict
+
+
+def get_encoding_from_headers(headers):
+    """Returns encodings from given HTTP Header Dict.
+
+    :param headers: dictionary to extract encoding from.
+    :rtype: str
+    """
+
+    content_type = headers.get("content-type")
+
+    if not content_type:
+        return None
+
+    content_type, params = _parse_content_type_header(content_type)
+
+    if "charset" in params:
+        return params["charset"].strip("'\"")
+
+    if "text" in content_type:
+        return "ISO-8859-1"
+
+    if "application/json" in content_type:
+        # Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset
+        return "utf-8"
 
 
 def stream_decode_response_unicode(iterator, r):
@@ -979,8 +1018,35 @@ def get_auth_from_url(url):
 
     return auth
 
-# moved to requests._internal._headers.check_header_validity and
-# requests._internal._headers._validate_header_part
+
+def check_header_validity(header):
+    """Verifies that header parts don't contain leading whitespace
+    reserved characters, or return characters.
+
+    :param header: tuple, in the format (name, value).
+    """
+    name, value = header
+    _validate_header_part(header, name, 0)
+    _validate_header_part(header, value, 1)
+
+
+def _validate_header_part(header, header_part, header_validator_index):
+    if isinstance(header_part, str):
+        validator = _HEADER_VALIDATORS_STR[header_validator_index]
+    elif isinstance(header_part, bytes):
+        validator = _HEADER_VALIDATORS_BYTE[header_validator_index]
+    else:
+        raise InvalidHeader(
+            f"Header part ({header_part!r}) from {header} "
+            f"must be of type str or bytes, not {type(header_part)}"
+        )
+
+    if not validator.match(header_part):
+        header_kind = "name" if header_validator_index == 0 else "value"
+        raise InvalidHeader(
+            f"Invalid leading whitespace, reserved character(s), or return "
+            f"character(s) in header {header_kind}: {header_part!r}"
+        )
 
 
 def urldefragauth(url):
@@ -1006,7 +1072,7 @@ def rewind_body(prepared_request):
     """
     body_seek = getattr(prepared_request.body, "seek", None)
     if body_seek is not None and isinstance(
-        prepared_request._body_position, integer_types
+        prepared_request._body_position, int
     ):
         try:
             body_seek(prepared_request._body_position)

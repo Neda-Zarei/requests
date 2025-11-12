@@ -9,6 +9,7 @@ compatibility until the next major version.
 
 import importlib
 import sys
+import warnings
 
 # -------
 # urllib3
@@ -47,9 +48,6 @@ chardet = _resolve_char_detection()
 
 # Syntax sugar.
 _ver = sys.version_info
-
-#: Python 2.x?
-is_py2 = _ver[0] == 2
 
 #: Python 3.x?
 is_py3 = _ver[0] == 3
@@ -98,9 +96,29 @@ from urllib.request import (
     proxy_bypass_environment,
 )
 
-builtin_str = str
+# Keep Python 3 builtins exposed for historical reasons
 str = str
 bytes = bytes
-basestring = (str, bytes)
 numeric_types = (int, float)
-integer_types = (int,)
+
+# Deprecation layer for legacy aliases
+_DEPRECATED_COMPAT = {
+    "is_py2": False,
+    "basestring": str,
+    "integer_types": (int,),
+    "builtin_str": str,
+}
+
+
+def __getattr__(name):
+    if name in _DEPRECATED_COMPAT:
+        warnings.warn(
+            (
+                f"requests.compat.{name} is deprecated and will be removed in the next major release; "
+                "use Python 3 built-ins directly."
+            ),
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _DEPRECATED_COMPAT[name]
+    raise AttributeError(name)
