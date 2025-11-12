@@ -23,11 +23,13 @@ from urllib3.exceptions import (
 from urllib3.exceptions import ProxyError as _ProxyError
 from urllib3.exceptions import ReadTimeoutError, ResponseError
 from urllib3.exceptions import SSLError as _SSLError
-from urllib3.poolmanager import PoolManager
+from urllib3.poolmanager import PoolManager, proxy_from_url
 from urllib3.util import Timeout as TimeoutSauce
 from urllib3.util import parse_url
 from urllib3.util.retry import Retry
 
+# TODO(3.0): requests.adapters will become a thin wrapper over requests._internal._adapters
+from .auth import _basic_auth_str
 from .compat import basestring, urlparse
 from .cookies import extract_cookies_to_jar
 from .exceptions import (
@@ -45,12 +47,22 @@ from .exceptions import (
 from .models import Response
 from .structures import CaseInsensitiveDict
 from .utils import (
+    DEFAULT_CA_BUNDLE_PATH,
+    extract_zipped_paths,
+    get_auth_from_url,
     get_encoding_from_headers,
     prepend_scheme_if_needed,
     select_proxy,
     urldefragauth,
 )
-from ._internal import _adapters_urllib3 as _adpt_urllib3
+from ._internal._adapters import _urllib3_request_context as _urllib3_request_context
+
+try:
+    from urllib3.contrib.socks import SOCKSProxyManager
+except ImportError:
+
+    def SOCKSProxyManager(*args, **kwargs):
+        raise InvalidSchema("Missing dependencies for SOCKS support.")
 
 
 if typing.TYPE_CHECKING:
@@ -62,22 +74,7 @@ DEFAULT_POOLSIZE = 10
 DEFAULT_RETRIES = 0
 DEFAULT_POOL_TIMEOUT = None
 
-# Backwards-compatible alias to the internal urllib3 request context builder
-# to preserve any potential third-party references to this private helper.
-# Not a public API guarantee, but we try to avoid breakage.
-
-
-# compatibility wrapper to avoid breaking private references
-# delegates to internal implementation
-from ._internal import _adapters_urllib3 as _adpt_urllib3
-
-def _urllib3_request_context(
-    request: "PreparedRequest",
-    verify: "bool | str | None",
-    client_cert: "typing.Tuple[str, str] | str | None",
-    poolmanager: "PoolManager",
-) -> "(typing.Dict[str, typing.Any], typing.Dict[str, typing.Any])":
-    return _adpt_urllib3.urllib3_request_context(request, verify, client_cert)
+# _urllib3_request_context is provided by requests._internal._adapters
 
 
 class BaseAdapter:
@@ -202,12 +199,11 @@ class HTTPAdapter(BaseAdapter):
         self._pool_maxsize = maxsize
         self._pool_block = block
 
-        self.poolmanager = _adpt_urllib3.build_poolmanager(
+        self.poolmanager = PoolManager(
             num_pools=connections,
             maxsize=maxsize,
             block=block,
-            strict=None,
-            pool_kwargs=pool_kwargs,
+            **pool_kwargs,
         )
 
     def proxy_manager_for(self, proxy, **proxy_kwargs):
@@ -224,15 +220,26 @@ class HTTPAdapter(BaseAdapter):
         """
         if proxy in self.proxy_manager:
             manager = self.proxy_manager[proxy]
-        else:
-            manager = self.proxy_manager[proxy] = _adpt_urllib3.build_proxy_manager(
-                proxy_url=proxy,
+        elif proxy.lower().startswith("socks"):
+            username, password = get_auth_from_url(proxy)
+            manager = self.proxy_manager[proxy] = SOCKSProxyManager(
+                proxy,
+                username=username,
+                password=password,
                 num_pools=self._pool_connections,
                 maxsize=self._pool_maxsize,
                 block=self._pool_block,
-                strict=None,
-                proxy_headers=self.proxy_headers(proxy),
-                proxy_kwargs=proxy_kwargs,
+                **proxy_kwargs,
+            )
+        else:
+            proxy_headers = self.proxy_headers(proxy)
+            manager = self.proxy_manager[proxy] = proxy_from_url(
+                proxy,
+                proxy_headers=proxy_headers,
+                num_pools=self._pool_connections,
+                maxsize=self._pool_maxsize,
+                block=self._pool_block,
+                **proxy_kwargs,
             )
 
         return manager
@@ -249,12 +256,49 @@ class HTTPAdapter(BaseAdapter):
             to a CA bundle to use
         :param cert: The SSL certificate to verify.
         """
-        _adpt_urllib3.configure_cert_verify(
-            conn,
-            url=url,
-            verify=verify,
-            cert=cert,
-        )
+        if url.lower().startswith("https") and verify:
+            cert_loc = None
+
+            # Allow self-specified cert location.
+            if verify is not True:
+                cert_loc = verify
+
+            if not cert_loc:
+                cert_loc = extract_zipped_paths(DEFAULT_CA_BUNDLE_PATH)
+
+            if not cert_loc or not os.path.exists(cert_loc):
+                raise OSError(
+                    f"Could not find a suitable TLS CA certificate bundle, "
+                    f"invalid path: {cert_loc}"
+                )
+
+            conn.cert_reqs = "CERT_REQUIRED"
+
+            if not os.path.isdir(cert_loc):
+                conn.ca_certs = cert_loc
+            else:
+                conn.ca_cert_dir = cert_loc
+        else:
+            conn.cert_reqs = "CERT_NONE"
+            conn.ca_certs = None
+            conn.ca_cert_dir = None
+
+        if cert:
+            if not isinstance(cert, basestring):
+                conn.cert_file = cert[0]
+                conn.key_file = cert[1]
+            else:
+                conn.cert_file = cert
+                conn.key_file = None
+            if conn.cert_file and not os.path.exists(conn.cert_file):
+                raise OSError(
+                    f"Could not find the TLS certificate file, "
+                    f"invalid path: {conn.cert_file}"
+                )
+            if conn.key_file and not os.path.exists(conn.key_file):
+                raise OSError(
+                    f"Could not find the TLS key file, invalid path: {conn.key_file}"
+                )
 
     def build_response(self, req, resp):
         """Builds a :class:`Response <requests.Response>` object from a urllib3
@@ -502,7 +546,13 @@ class HTTPAdapter(BaseAdapter):
         :param proxy: The url of the proxy being used for this request.
         :rtype: dict
         """
-        return _adpt_urllib3.proxy_headers(proxy)
+        headers = {}
+        username, password = get_auth_from_url(proxy)
+
+        if username:
+            headers["Proxy-Authorization"] = _basic_auth_str(username, password)
+
+        return headers
 
     def send(
         self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None
