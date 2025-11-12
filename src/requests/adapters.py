@@ -23,13 +23,12 @@ from urllib3.exceptions import (
 from urllib3.exceptions import ProxyError as _ProxyError
 from urllib3.exceptions import ReadTimeoutError, ResponseError
 from urllib3.exceptions import SSLError as _SSLError
-from urllib3.poolmanager import PoolManager, proxy_from_url
+from urllib3.poolmanager import PoolManager
 from urllib3.util import Timeout as TimeoutSauce
 from urllib3.util import parse_url
 from urllib3.util.retry import Retry
 
-from .auth import _basic_auth_str
-from .compat import urlparse
+from .compat import basestring, urlparse
 from .cookies import extract_cookies_to_jar
 from .exceptions import (
     ConnectionError,
@@ -46,21 +45,12 @@ from .exceptions import (
 from .models import Response
 from .structures import CaseInsensitiveDict
 from .utils import (
-    DEFAULT_CA_BUNDLE_PATH,
-    extract_zipped_paths,
-    get_auth_from_url,
     get_encoding_from_headers,
     prepend_scheme_if_needed,
     select_proxy,
     urldefragauth,
 )
-
-try:
-    from urllib3.contrib.socks import SOCKSProxyManager
-except ImportError:
-
-    def SOCKSProxyManager(*args, **kwargs):
-        raise InvalidSchema("Missing dependencies for SOCKS support.")
+from ._internal import _adapters_urllib3 as _adpt_urllib3
 
 
 if typing.TYPE_CHECKING:
@@ -72,6 +62,14 @@ DEFAULT_POOLSIZE = 10
 DEFAULT_RETRIES = 0
 DEFAULT_POOL_TIMEOUT = None
 
+# Backwards-compatible alias to the internal urllib3 request context builder
+# to preserve any potential third-party references to this private helper.
+# Not a public API guarantee, but we try to avoid breakage.
+
+
+# compatibility wrapper to avoid breaking private references
+# delegates to internal implementation
+from ._internal import _adapters_urllib3 as _adpt_urllib3
 
 def _urllib3_request_context(
     request: "PreparedRequest",
@@ -79,35 +77,7 @@ def _urllib3_request_context(
     client_cert: "typing.Tuple[str, str] | str | None",
     poolmanager: "PoolManager",
 ) -> "(typing.Dict[str, typing.Any], typing.Dict[str, typing.Any])":
-    host_params = {}
-    pool_kwargs = {}
-    parsed_request_url = urlparse(request.url)
-    scheme = parsed_request_url.scheme.lower()
-    port = parsed_request_url.port
-
-    cert_reqs = "CERT_REQUIRED"
-    if verify is False:
-        cert_reqs = "CERT_NONE"
-    elif isinstance(verify, str):
-        if not os.path.isdir(verify):
-            pool_kwargs["ca_certs"] = verify
-        else:
-            pool_kwargs["ca_cert_dir"] = verify
-    pool_kwargs["cert_reqs"] = cert_reqs
-    if client_cert is not None:
-        if isinstance(client_cert, tuple) and len(client_cert) == 2:
-            pool_kwargs["cert_file"] = client_cert[0]
-            pool_kwargs["key_file"] = client_cert[1]
-        else:
-            # According to our docs, we allow users to specify just the client
-            # cert path
-            pool_kwargs["cert_file"] = client_cert
-    host_params = {
-        "scheme": scheme,
-        "host": parsed_request_url.hostname,
-        "port": port,
-    }
-    return host_params, pool_kwargs
+    return _adpt_urllib3.urllib3_request_context(request, verify, client_cert)
 
 
 class BaseAdapter:
@@ -232,11 +202,12 @@ class HTTPAdapter(BaseAdapter):
         self._pool_maxsize = maxsize
         self._pool_block = block
 
-        self.poolmanager = PoolManager(
+        self.poolmanager = _adpt_urllib3.build_poolmanager(
             num_pools=connections,
             maxsize=maxsize,
             block=block,
-            **pool_kwargs,
+            strict=None,
+            pool_kwargs=pool_kwargs,
         )
 
     def proxy_manager_for(self, proxy, **proxy_kwargs):
@@ -253,26 +224,15 @@ class HTTPAdapter(BaseAdapter):
         """
         if proxy in self.proxy_manager:
             manager = self.proxy_manager[proxy]
-        elif proxy.lower().startswith("socks"):
-            username, password = get_auth_from_url(proxy)
-            manager = self.proxy_manager[proxy] = SOCKSProxyManager(
-                proxy,
-                username=username,
-                password=password,
-                num_pools=self._pool_connections,
-                maxsize=self._pool_maxsize,
-                block=self._pool_block,
-                **proxy_kwargs,
-            )
         else:
-            proxy_headers = self.proxy_headers(proxy)
-            manager = self.proxy_manager[proxy] = proxy_from_url(
-                proxy,
-                proxy_headers=proxy_headers,
+            manager = self.proxy_manager[proxy] = _adpt_urllib3.build_proxy_manager(
+                proxy_url=proxy,
                 num_pools=self._pool_connections,
                 maxsize=self._pool_maxsize,
                 block=self._pool_block,
-                **proxy_kwargs,
+                strict=None,
+                proxy_headers=self.proxy_headers(proxy),
+                proxy_kwargs=proxy_kwargs,
             )
 
         return manager
@@ -289,49 +249,12 @@ class HTTPAdapter(BaseAdapter):
             to a CA bundle to use
         :param cert: The SSL certificate to verify.
         """
-        if url.lower().startswith("https") and verify:
-            cert_loc = None
-
-            # Allow self-specified cert location.
-            if verify is not True:
-                cert_loc = verify
-
-            if not cert_loc:
-                cert_loc = extract_zipped_paths(DEFAULT_CA_BUNDLE_PATH)
-
-            if not cert_loc or not os.path.exists(cert_loc):
-                raise OSError(
-                    f"Could not find a suitable TLS CA certificate bundle, "
-                    f"invalid path: {cert_loc}"
-                )
-
-            conn.cert_reqs = "CERT_REQUIRED"
-
-            if not os.path.isdir(cert_loc):
-                conn.ca_certs = cert_loc
-            else:
-                conn.ca_cert_dir = cert_loc
-        else:
-            conn.cert_reqs = "CERT_NONE"
-            conn.ca_certs = None
-            conn.ca_cert_dir = None
-
-        if cert:
-            if not isinstance(cert, (str, bytes)):
-                conn.cert_file = cert[0]
-                conn.key_file = cert[1]
-            else:
-                conn.cert_file = cert
-                conn.key_file = None
-            if conn.cert_file and not os.path.exists(conn.cert_file):
-                raise OSError(
-                    f"Could not find the TLS certificate file, "
-                    f"invalid path: {conn.cert_file}"
-                )
-            if conn.key_file and not os.path.exists(conn.key_file):
-                raise OSError(
-                    f"Could not find the TLS key file, invalid path: {conn.key_file}"
-                )
+        _adpt_urllib3.configure_cert_verify(
+            conn,
+            url=url,
+            verify=verify,
+            cert=cert,
+        )
 
     def build_response(self, req, resp):
         """Builds a :class:`Response <requests.Response>` object from a urllib3
@@ -579,13 +502,7 @@ class HTTPAdapter(BaseAdapter):
         :param proxy: The url of the proxy being used for this request.
         :rtype: dict
         """
-        headers = {}
-        username, password = get_auth_from_url(proxy)
-
-        if username:
-            headers["Proxy-Authorization"] = _basic_auth_str(username, password)
-
-        return headers
+        return _adpt_urllib3.proxy_headers(proxy)
 
     def send(
         self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None
