@@ -20,8 +20,8 @@ from urllib3.exceptions import (
     ReadTimeoutError,
     SSLError,
 )
-from urllib3.fields import RequestField
-from urllib3.filepost import encode_multipart_formdata
+# Multipart helpers are internal; delegate to internal module to avoid direct urllib3 coupling
+from ._internal._multipart import encode_multipart_formdata as _encode_multipart_formdata
 from urllib3.util import parse_url
 
 from ._internal_utils import to_native_string, unicode_is_ascii
@@ -56,16 +56,13 @@ from .structures import CaseInsensitiveDict
 from .utils import (
     check_header_validity,
     get_auth_from_url,
-    guess_filename,
+    guess_json_utf,
     iter_slices,
     parse_header_links,
     requote_uri,
+    stream_decode_response_unicode,
     super_len,
     to_key_val_list,
-)
-from ._internal._encoding import (
-    guess_json_utf,
-    stream_decode_response_unicode,
 )
 
 #: The set of HTTP status codes that indicate an automatically
@@ -145,64 +142,8 @@ class RequestEncodingMixin:
         The tuples may be 2-tuples (filename, fileobj), 3-tuples (filename, fileobj, contentype)
         or 4-tuples (filename, fileobj, contentype, custom_headers).
         """
-        if not files:
-            raise ValueError("Files must be provided.")
-        elif isinstance(data, basestring):
-            raise ValueError("Data must not be a string.")
-
-        new_fields = []
-        fields = to_key_val_list(data or {})
-        files = to_key_val_list(files or {})
-
-        for field, val in fields:
-            if isinstance(val, basestring) or not hasattr(val, "__iter__"):
-                val = [val]
-            for v in val:
-                if v is not None:
-                    # Don't call str() on bytestrings: in Py3 it all goes wrong.
-                    if not isinstance(v, bytes):
-                        v = str(v)
-
-                    new_fields.append(
-                        (
-                            field.decode("utf-8")
-                            if isinstance(field, bytes)
-                            else field,
-                            v.encode("utf-8") if isinstance(v, str) else v,
-                        )
-                    )
-
-        for k, v in files:
-            # support for explicit filename
-            ft = None
-            fh = None
-            if isinstance(v, (tuple, list)):
-                if len(v) == 2:
-                    fn, fp = v
-                elif len(v) == 3:
-                    fn, fp, ft = v
-                else:
-                    fn, fp, ft, fh = v
-            else:
-                fn = guess_filename(v) or k
-                fp = v
-
-            if isinstance(fp, (str, bytes, bytearray)):
-                fdata = fp
-            elif hasattr(fp, "read"):
-                fdata = fp.read()
-            elif fp is None:
-                continue
-            else:
-                fdata = fp
-
-            rf = RequestField(name=k, data=fdata, filename=fn, headers=fh)
-            rf.make_multipart(content_type=ft)
-            new_fields.append(rf)
-
-        body, content_type = encode_multipart_formdata(new_fields)
-
-        return body, content_type
+        # Delegate to internal multipart helpers to preserve behavior while decoupling
+        return _encode_multipart_formdata(data=data, files=files)
 
 
 class RequestHooksMixin:
