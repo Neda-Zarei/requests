@@ -58,11 +58,6 @@ from .exceptions import (
     UnrewindableBodyError,
 )
 from .structures import CaseInsensitiveDict
-from ._internal._encoding import (
-    get_encoding_from_headers as _encoding_get_encoding_from_headers,
-    stream_decode_response_unicode as _encoding_stream_decode_response_unicode,
-    guess_json_utf as _encoding_guess_json_utf,
-)
 
 NETRC_FILES = (".netrc", "_netrc")
 
@@ -505,9 +500,30 @@ def get_encodings_from_content(content):
         + xml_re.findall(content)
     )
 
-# NOTE: The actual implementation now lives in requests._internal._encoding.
-# This function is kept here only if needed elsewhere. As of this refactor it is
-# no longer used internally in this module.
+
+def _parse_content_type_header(header):
+    """Returns content type and parameters from given header
+
+    :param header: string
+    :return: tuple containing content type and dictionary of
+         parameters
+    """
+
+    tokens = header.split(";")
+    content_type, params = tokens[0].strip(), tokens[1:]
+    params_dict = {}
+    items_to_strip = "\"' "
+
+    for param in params:
+        param = param.strip()
+        if param:
+            key, value = param, True
+            index_of_equals = param.find("=")
+            if index_of_equals != -1:
+                key = param[:index_of_equals].strip(items_to_strip)
+                value = param[index_of_equals + 1 :].strip(items_to_strip)
+            params_dict[key.lower()] = value
+    return content_type, params_dict
 
 
 def get_encoding_from_headers(headers):
@@ -516,12 +532,40 @@ def get_encoding_from_headers(headers):
     :param headers: dictionary to extract encoding from.
     :rtype: str
     """
-    return _encoding_get_encoding_from_headers(headers)
+
+    content_type = headers.get("content-type")
+
+    if not content_type:
+        return None
+
+    content_type, params = _parse_content_type_header(content_type)
+
+    if "charset" in params:
+        return params["charset"].strip("'\"")
+
+    if "text" in content_type:
+        return "ISO-8859-1"
+
+    if "application/json" in content_type:
+        # Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset
+        return "utf-8"
 
 
 def stream_decode_response_unicode(iterator, r):
     """Stream decodes an iterator."""
-    yield from _encoding_stream_decode_response_unicode(iterator, r)
+
+    if r.encoding is None:
+        yield from iterator
+        return
+
+    decoder = codecs.getincrementaldecoder(r.encoding)(errors="replace")
+    for chunk in iterator:
+        rv = decoder.decode(chunk)
+        if rv:
+            yield rv
+    rv = decoder.decode(b"", final=True)
+    if rv:
+        yield rv
 
 
 def iter_slices(string, slice_length):
@@ -894,12 +938,42 @@ def parse_header_links(value):
     return links
 
 
+# Null bytes; no need to recreate these on each call to guess_json_utf
+_null = "\x00".encode("ascii")  # encoding to ASCII for Python 3
+_null2 = _null * 2
+_null3 = _null * 3
+
 
 def guess_json_utf(data):
     """
     :rtype: str
     """
-    return _encoding_guess_json_utf(data)
+    # JSON always starts with two ASCII characters, so detection is as
+    # easy as counting the nulls and from their location and count
+    # determine the encoding. Also detect a BOM, if present.
+    sample = data[:4]
+    if sample in (codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE):
+        return "utf-32"  # BOM included
+    if sample[:3] == codecs.BOM_UTF8:
+        return "utf-8-sig"  # BOM included, MS style (discouraged)
+    if sample[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):
+        return "utf-16"  # BOM included
+    nullcount = sample.count(_null)
+    if nullcount == 0:
+        return "utf-8"
+    if nullcount == 2:
+        if sample[::2] == _null2:  # 1st and 3rd are null
+            return "utf-16-be"
+        if sample[1::2] == _null2:  # 2nd and 4th are null
+            return "utf-16-le"
+        # Did not detect 2 valid UTF-16 ascii-range characters
+    if nullcount == 3:
+        if sample[:3] == _null3:
+            return "utf-32-be"
+        if sample[1:] == _null3:
+            return "utf-32-le"
+        # Did not detect a valid UTF-32 ascii-range character
+    return None
 
 
 def prepend_scheme_if_needed(url, new_scheme):
@@ -1010,3 +1084,10 @@ def rewind_body(prepared_request):
             )
     else:
         raise UnrewindableBodyError("Unable to rewind request body for redirect.")
+# Re-exports for API stability: delegate to internal implementations
+from ._internal._proxies import (
+    get_environ_proxies as get_environ_proxies,
+    should_bypass_proxies as should_bypass_proxies,
+    select_proxy as select_proxy,
+)
+from ._internal._netrc import get_netrc_auth as get_netrc_auth
