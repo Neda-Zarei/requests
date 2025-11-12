@@ -1,13 +1,8 @@
 """
-requests._internal
-~~~~~~~~~~~~~~~~~~~
+Internal-only utilities for Requests.
 
-Internal helpers for Requests.
-
-WARNING: This is an internal-only package. There are no stability guarantees
-for any APIs defined here; they may change or be removed at any time without
-notice. Do not import from this package in user code.
+CAUTION: This is a private, unsupported package. No stability guarantees are made.
+APIs here may change or be removed at any time without notice.
 """
 
 __all__ = []
-

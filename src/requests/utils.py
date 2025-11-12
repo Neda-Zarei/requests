@@ -33,9 +33,11 @@ from ._internal_utils import (  # noqa: F401
 )
 from .compat import (
     Mapping,
+    basestring,
     bytes,
     getproxies,
     getproxies_environment,
+    integer_types,
     is_urllib3_1,
 )
 from .compat import parse_http_list as _parse_list_header
@@ -56,6 +58,11 @@ from .exceptions import (
     UnrewindableBodyError,
 )
 from .structures import CaseInsensitiveDict
+from ._internal._encoding import (
+    get_encoding_from_headers as _encoding_get_encoding_from_headers,
+    stream_decode_response_unicode as _encoding_stream_decode_response_unicode,
+    guess_json_utf as _encoding_guess_json_utf,
+)
 
 NETRC_FILES = (".netrc", "_netrc")
 
@@ -249,7 +256,7 @@ def get_netrc_auth(url, raise_errors=False):
 def guess_filename(obj):
     """Tries to guess the filename of the given object."""
     name = getattr(obj, "name", None)
-    if name and isinstance(name, (str, bytes)) and name[0] != "<" and name[-1] != ">":
+    if name and isinstance(name, basestring) and name[0] != "<" and name[-1] != ">":
         return os.path.basename(name)
 
 
@@ -498,30 +505,9 @@ def get_encodings_from_content(content):
         + xml_re.findall(content)
     )
 
-
-def _parse_content_type_header(header):
-    """Returns content type and parameters from given header
-
-    :param header: string
-    :return: tuple containing content type and dictionary of
-         parameters
-    """
-
-    tokens = header.split(";")
-    content_type, params = tokens[0].strip(), tokens[1:]
-    params_dict = {}
-    items_to_strip = "\"' "
-
-    for param in params:
-        param = param.strip()
-        if param:
-            key, value = param, True
-            index_of_equals = param.find("=")
-            if index_of_equals != -1:
-                key = param[:index_of_equals].strip(items_to_strip)
-                value = param[index_of_equals + 1 :].strip(items_to_strip)
-            params_dict[key.lower()] = value
-    return content_type, params_dict
+# NOTE: The actual implementation now lives in requests._internal._encoding.
+# This function is kept here only if needed elsewhere. As of this refactor it is
+# no longer used internally in this module.
 
 
 def get_encoding_from_headers(headers):
@@ -530,40 +516,12 @@ def get_encoding_from_headers(headers):
     :param headers: dictionary to extract encoding from.
     :rtype: str
     """
-
-    content_type = headers.get("content-type")
-
-    if not content_type:
-        return None
-
-    content_type, params = _parse_content_type_header(content_type)
-
-    if "charset" in params:
-        return params["charset"].strip("'\"")
-
-    if "text" in content_type:
-        return "ISO-8859-1"
-
-    if "application/json" in content_type:
-        # Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset
-        return "utf-8"
+    return _encoding_get_encoding_from_headers(headers)
 
 
 def stream_decode_response_unicode(iterator, r):
     """Stream decodes an iterator."""
-
-    if r.encoding is None:
-        yield from iterator
-        return
-
-    decoder = codecs.getincrementaldecoder(r.encoding)(errors="replace")
-    for chunk in iterator:
-        rv = decoder.decode(chunk)
-        if rv:
-            yield rv
-    rv = decoder.decode(b"", final=True)
-    if rv:
-        yield rv
+    yield from _encoding_stream_decode_response_unicode(iterator, r)
 
 
 def iter_slices(string, slice_length):
@@ -936,42 +894,12 @@ def parse_header_links(value):
     return links
 
 
-# Null bytes; no need to recreate these on each call to guess_json_utf
-_null = "\x00".encode("ascii")  # encoding to ASCII for Python 3
-_null2 = _null * 2
-_null3 = _null * 3
-
 
 def guess_json_utf(data):
     """
     :rtype: str
     """
-    # JSON always starts with two ASCII characters, so detection is as
-    # easy as counting the nulls and from their location and count
-    # determine the encoding. Also detect a BOM, if present.
-    sample = data[:4]
-    if sample in (codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE):
-        return "utf-32"  # BOM included
-    if sample[:3] == codecs.BOM_UTF8:
-        return "utf-8-sig"  # BOM included, MS style (discouraged)
-    if sample[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):
-        return "utf-16"  # BOM included
-    nullcount = sample.count(_null)
-    if nullcount == 0:
-        return "utf-8"
-    if nullcount == 2:
-        if sample[::2] == _null2:  # 1st and 3rd are null
-            return "utf-16-be"
-        if sample[1::2] == _null2:  # 2nd and 4th are null
-            return "utf-16-le"
-        # Did not detect 2 valid UTF-16 ascii-range characters
-    if nullcount == 3:
-        if sample[:3] == _null3:
-            return "utf-32-be"
-        if sample[1:] == _null3:
-            return "utf-32-le"
-        # Did not detect a valid UTF-32 ascii-range character
-    return None
+    return _encoding_guess_json_utf(data)
 
 
 def prepend_scheme_if_needed(url, new_scheme):
@@ -1072,7 +1000,7 @@ def rewind_body(prepared_request):
     """
     body_seek = getattr(prepared_request.body, "seek", None)
     if body_seek is not None and isinstance(
-        prepared_request._body_position, int
+        prepared_request._body_position, integer_types
     ):
         try:
             body_seek(prepared_request._body_position)
