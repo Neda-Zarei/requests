@@ -1,92 +1,46 @@
 """
-Internal headers utilities for Requests.
+requests._internal._headers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This module is for internal use only. It is not part of the public API and
-may change without notice.
+Internal header helpers used by requests.utils. Keep this module free of
+imports from public requests modules to avoid cycles.
+
+NOTE: Transitional wiring; public names remain in requests.utils until
+next major version.
 """
+from __future__ import annotations
 
-from .._internal_utils import (
-    _HEADER_VALIDATORS_BYTE,
-    _HEADER_VALIDATORS_STR,
-)
-from ..exceptions import InvalidHeader
+from urllib.parse import unquote
 
 
-def check_header_validity(header):
-    """Verifies that header parts don't contain leading whitespace
-    reserved characters, or return characters.
-
-    :param header: tuple, in the format (name, value).
-    """
-    name, value = header
-    _validate_header_part(header, name, 0)
-    _validate_header_part(header, value, 1)
+def parse_list_header(value):
+    # Werkzeug-compatible list header parsing is provided via
+    # requests.compat.parse_http_list in public utils. This module only
+    # provides dict parsing helpers when utils prefers to import directly.
+    raise NotImplementedError
 
 
-def _validate_header_part(header, header_part, header_validator_index):
-    if isinstance(header_part, str):
-        validator = _HEADER_VALIDATORS_STR[header_validator_index]
-    elif isinstance(header_part, bytes):
-        validator = _HEADER_VALIDATORS_BYTE[header_validator_index]
-    else:
-        raise InvalidHeader(
-            f"Header part ({header_part!r}) from {header} "
-            f"must be of type str or bytes, not {type(header_part)}"
-        )
+# We reproduce utils.parse_dict_header and unquote_header_value here to allow
+# public utils to import and re-export them without changing behavior.
 
-    if not validator.match(header_part):
-        header_kind = "name" if header_validator_index == 0 else "value"
-        raise InvalidHeader(
-            f"Invalid leading whitespace, reserved character(s), or return "
-            f"character(s) in header {header_kind}: {header_part!r}"
-        )
+def parse_dict_header(value):
+    result = {}
+    from urllib.request import parse_http_list as _parse_list_header
 
-
-def _parse_content_type_header(header):
-    """Returns content type and parameters from given header
-
-    :param header: string
-    :return: tuple containing content type and dictionary of
-         parameters
-    """
-
-    tokens = header.split(";")
-    content_type, params = tokens[0].strip(), tokens[1:]
-    params_dict = {}
-    items_to_strip = "\"' "
-
-    for param in params:
-        param = param.strip()
-        if param:
-            key, value = param, True
-            index_of_equals = param.find("=")
-            if index_of_equals != -1:
-                key = param[:index_of_equals].strip(items_to_strip)
-                value = param[index_of_equals + 1 :].strip(items_to_strip)
-            params_dict[key.lower()] = value
-    return content_type, params_dict
+    for item in _parse_list_header(value):
+        if "=" not in item:
+            result[item] = None
+            continue
+        name, value = item.split("=", 1)
+        if value[:1] == value[-1:] == '"':
+            value = unquote_header_value(value[1:-1])
+        result[name] = value
+    return result
 
 
-def get_encoding_from_headers(headers):
-    """Returns encodings from given HTTP Header Dict.
-
-    :param headers: dictionary to extract encoding from.
-    :rtype: str
-    """
-
-    content_type = headers.get("content-type")
-
-    if not content_type:
-        return None
-
-    content_type, params = _parse_content_type_header(content_type)
-
-    if "charset" in params:
-        return params["charset"].strip("'\"")
-
-    if "text" in content_type:
-        return "ISO-8859-1"
-
-    if "application/json" in content_type:
-        # Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset
-        return "utf-8"
+def unquote_header_value(value, is_filename: bool = False):
+    if value and value[0] == value[-1] == '"':
+        value = value[1:-1]
+        if not is_filename or value[:2] != "\\\\":
+            return value.replace("\\\\", "\\").replace('\\"', '"')
+    return value

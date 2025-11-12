@@ -59,6 +59,12 @@ from .exceptions import (
 )
 from .structures import CaseInsensitiveDict
 
+# TODO(3.0): Public utils will be slim; implementations live in requests._internal._headers
+from ._internal._headers import (
+    parse_dict_header as _i_parse_dict_header,
+    unquote_header_value as _i_unquote_header_value,
+)
+
 NETRC_FILES = (".netrc", "_netrc")
 
 DEFAULT_CA_BUNDLE_PATH = certs.where()
@@ -394,6 +400,9 @@ def parse_list_header(value):
 
 
 # From mitsuhiko/werkzeug (used with permission).
+# Delegated to internal implementation to avoid duplication while
+# preserving the public API and docstring.
+
 def parse_dict_header(value):
     """Parse lists of key, value pairs as described by RFC 2068 Section 2 and
     convert them into a python dict:
@@ -416,16 +425,7 @@ def parse_dict_header(value):
     :return: :class:`dict`
     :rtype: dict
     """
-    result = {}
-    for item in _parse_list_header(value):
-        if "=" not in item:
-            result[item] = None
-            continue
-        name, value = item.split("=", 1)
-        if value[:1] == value[-1:] == '"':
-            value = unquote_header_value(value[1:-1])
-        result[name] = value
-    return result
+    return _i_parse_dict_header(value)
 
 
 # From mitsuhiko/werkzeug (used with permission).
@@ -1084,10 +1084,3 @@ def rewind_body(prepared_request):
             )
     else:
         raise UnrewindableBodyError("Unable to rewind request body for redirect.")
-# Re-exports for API stability: delegate to internal implementations
-from ._internal._proxies import (
-    get_environ_proxies as get_environ_proxies,
-    should_bypass_proxies as should_bypass_proxies,
-    select_proxy as select_proxy,
-)
-from ._internal._netrc import get_netrc_auth as get_netrc_auth
