@@ -6,6 +6,73 @@ dev
 
 - \[Short description of non-trivial change.\]
 
+**Deprecations**
+
+- requests.packages.* import shims are deprecated. Continue importing third-party dependencies directly instead of via the requests.packages namespace.
+  - Replacement: import urllib3, idna, and either charset_normalizer or chardet directly.
+  - Availability: behavior is preserved for all 2.x releases; imports will continue to work in 2.x but emit a DeprecationWarning.
+  - Planned removal: Requests 3.x.
+  - Rationale: reduce legacy shims, simplify maintenance, and align with a Python 3.9+ baseline.
+  - Affected module: requests.packages.
+
+- Selected requests.compat aliases are deprecated: is_py2, basestring, integer_types, builtin_str.
+  - Replacement: use native Python 3 types and idioms. Mappings:
+    - basestring -> str
+    - integer_types -> (int,)
+    - builtin_str -> str
+    - is_py2 -> False (drop checks; remove Python 2-only branches)
+  - Availability: aliases remain available in 2.x but emit a DeprecationWarning.
+  - Planned removal: Requests 3.x.
+  - Rationale: remove Python 2 shims and simplify maintenance for Python 3-only code.
+  - Affected module: requests.compat.
+
+Migration examples
+
+```python
+# Import shims
+# Before
+from requests.packages import urllib3
+from requests.packages.urllib3.util.retry import Retry
+from requests.packages import idna
+from requests.packages import chardet  # or charset_normalizer, depending on your dependency
+
+# After
+import urllib3
+from urllib3.util.retry import Retry
+import idna
+# Choose one character detection library your project depends on:
+import chardet
+# or
+import charset_normalizer
+```
+
+```python
+# Compat type aliases
+# Before
+from requests.compat import is_py2, basestring, integer_types, builtin_str
+
+if is_py2:
+    ...  # Python 2-specific branch; safe to remove in Python 3-only code
+
+isinstance(name, basestring)
+isinstance(n, integer_types)
+
+def f(x: builtin_str) -> None:
+    ...
+
+# After (Python 3)
+# Drop is_py2 checks entirely
+# Use native types directly
+isinstance(name, str)
+isinstance(n, (int,))
+
+def f(x: str) -> None:
+    ...
+```
+
+Timeline: deprecated in this 2.x release; removal targeted for the next major release (3.x).
+Compatibility: no runtime behavior change in 2.x beyond emitting DeprecationWarning for the above surfaces.
+
 2.32.5 (2025-08-18)
 -------------------
 
