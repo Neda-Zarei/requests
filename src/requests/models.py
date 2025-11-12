@@ -54,7 +54,6 @@ from .hooks import default_hooks
 from .status_codes import codes
 from .structures import CaseInsensitiveDict
 from .utils import (
-    check_header_validity,
     get_auth_from_url,
     guess_filename,
     guess_json_utf,
@@ -65,6 +64,7 @@ from .utils import (
     super_len,
     to_key_val_list,
 )
+from ._internal._headers import check_header_validity
 
 #: The set of HTTP status codes that indicate an automatically
 #: processable redirect.
